@@ -1,0 +1,197 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "MouseTester/1.0.0": {
+        "dependencies": {
+          "OxyPlot.SkiaSharp": "2.1.0",
+          "OxyPlot.WindowsForms": "2.1.0"
+        },
+        "runtime": {
+          "MouseTester.dll": {}
+        }
+      },
+      "HarfBuzzSharp/2.6.1.4": {
+        "dependencies": {
+          "System.Memory": "4.5.3"
+        },
+        "runtime": {
+          "lib/netstandard2.0/HarfBuzzSharp.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "2.6.1.4"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/osx/native/libHarfBuzzSharp.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/tizen-armel/native/libHarfBuzzSharp.so": {
+            "rid": "tizen-armel",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/tizen-x86/native/libHarfBuzzSharp.so": {
+            "rid": "tizen-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/libHarfBuzzSharp.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x86/native/libHarfBuzzSharp.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "OxyPlot.Core/2.1.0": {
+        "runtime": {
+          "lib/netstandard2.0/OxyPlot.dll": {
+            "assemblyVersion": "2.1.0.0",
+            "fileVersion": "2.1.0.0"
+          }
+        }
+      },
+      "OxyPlot.SkiaSharp/2.1.0": {
+        "dependencies": {
+          "OxyPlot.Core": "2.1.0",
+          "SkiaSharp": "1.68.3",
+          "SkiaSharp.HarfBuzz": "1.68.3"
+        },
+        "runtime": {
+          "lib/netstandard2.0/OxyPlot.SkiaSharp.dll": {
+            "assemblyVersion": "2.1.0.0",
+            "fileVersion": "2.1.0.0"
+          }
+        }
+      },
+      "OxyPlot.WindowsForms/2.1.0": {
+        "dependencies": {
+          "OxyPlot.Core": "2.1.0"
+        },
+        "runtime": {
+          "lib/netcoreapp3.1/OxyPlot.WindowsForms.dll": {
+            "assemblyVersion": "2.1.0.0",
+            "fileVersion": "2.1.0.0"
+          }
+        }
+      },
+      "SkiaSharp/1.68.3": {
+        "dependencies": {
+          "System.Memory": "4.5.3"
+        },
+        "runtime": {
+          "lib/netstandard2.0/SkiaSharp.dll": {
+            "assemblyVersion": "1.68.0.0",
+            "fileVersion": "1.68.3.0"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/osx/native/libSkiaSharp.dylib": {
+            "rid": "osx",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/tizen-armel/native/libSkiaSharp.so": {
+            "rid": "tizen-armel",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/tizen-x86/native/libSkiaSharp.so": {
+            "rid": "tizen-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x64/native/libSkiaSharp.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          },
+          "runtimes/win-x86/native/libSkiaSharp.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
+      "SkiaSharp.HarfBuzz/1.68.3": {
+        "dependencies": {
+          "HarfBuzzSharp": "2.6.1.4",
+          "SkiaSharp": "1.68.3"
+        },
+        "runtime": {
+          "lib/netstandard2.0/SkiaSharp.HarfBuzz.dll": {
+            "assemblyVersion": "1.68.0.0",
+            "fileVersion": "1.68.3.0"
+          }
+        }
+      },
+      "System.Memory/4.5.3": {}
+    }
+  },
+  "libraries": {
+    "MouseTester/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "HarfBuzzSharp/2.6.1.4": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-7qJsdLtOxDY495v3SV9b8HEyu8/7Sf6OqHjPV5O09qh13r1phDvhj+bOdC+lcvgrF2M/FWq322gOeLgsT9J2cQ==",
+      "path": "harfbuzzsharp/2.6.1.4",
+      "hashPath": "harfbuzzsharp.2.6.1.4.nupkg.sha512"
+    },
+    "OxyPlot.Core/2.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-jG+Ct3T59fXDG2LE1hyUaXqH7i+h5Nfway1iB0+0NaY2mvDsz8Row/BKjiBWCt5NHp3+q9JSMiD2wpin2hh3kw==",
+      "path": "oxyplot.core/2.1.0",
+      "hashPath": "oxyplot.core.2.1.0.nupkg.sha512"
+    },
+    "OxyPlot.SkiaSharp/2.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-0BPtG5PflD07ET8pjy6KpJkxAbLyWNNY4NOp9moxSSp1dW8PU8pQcNasOJatLi/daAtOuqc5wu0SX1d0zJZcsQ==",
+      "path": "oxyplot.skiasharp/2.1.0",
+      "hashPath": "oxyplot.skiasharp.2.1.0.nupkg.sha512"
+    },
+    "OxyPlot.WindowsForms/2.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-3ehmpvSbTKUOfUSeZdfIyed5kGMdgPGq/MCXi1NXqzDqQhbUZ6OwVrRnfcLKB32WtnDAzwAtchirEaAFPo5iig==",
+      "path": "oxyplot.windowsforms/2.1.0",
+      "hashPath": "oxyplot.windowsforms.2.1.0.nupkg.sha512"
+    },
+    "SkiaSharp/1.68.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-78YvBVmR52PoLPf0aTZMWOZVrMxlXlgPOgU3vGk7W50wrYHi3lSd886ccYd7MkJmm+oInP8shf0vSy1321ERCQ==",
+      "path": "skiasharp/1.68.3",
+      "hashPath": "skiasharp.1.68.3.nupkg.sha512"
+    },
+    "SkiaSharp.HarfBuzz/1.68.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Zo/bZafpVYyUbl2W+Fvgqkt9tfLnUPsfm8NI2ULhxVgD56NI0PoOKrZL72fh9ORa2QG9agaRmW160308naGuuA==",
+      "path": "skiasharp.harfbuzz/1.68.3",
+      "hashPath": "skiasharp.harfbuzz.1.68.3.nupkg.sha512"
+    },
+    "System.Memory/4.5.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-3oDzvc/zzetpTKWMShs1AADwZjQ/36HnsufHRPcOjyRAAMLDlu2iD33MBI2opxnezcVUtXyqDXXjoFMOU9c7SA==",
+      "path": "system.memory/4.5.3",
+      "hashPath": "system.memory.4.5.3.nupkg.sha512"
+    }
+  }
+}

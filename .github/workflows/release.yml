@@ -25,15 +25,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set up MSVC environment
-        uses: microsoft/setup-msbuild@v2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
-      - name: Install packages
-        run: nuget restore .\MouseTester\MouseTester.sln
-
-      - name: Build executable
+      - name: Publish executable
         run: |
-          MSBuild.exe .\MouseTester\MouseTester.sln -p:Configuration=Release -p:Platform=x64
+          dotnet publish .\MouseTester\MouseTester.sln -r win-x64 -c Release -p:PublishSingleFile=true --self-contained false -o ./publish
 
       - name: Create release
         uses: ncipollo/release-action@v1
@@ -41,5 +40,5 @@ jobs:
           tag: MouseTester_v${{ inputs.version }}
           name: MouseTester_v${{ inputs.version }}
           prerelease: ${{ inputs.pre-release }}
-          artifacts: ./MouseTester/MouseTester/bin/x64/Release/MouseTester.exe
+          artifacts: ./publish/MouseTester.exe
           generateReleaseNotes: true

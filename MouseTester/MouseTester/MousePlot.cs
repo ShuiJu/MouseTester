@@ -1,692 +1,572 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
+using System.IO;
 using System.Linq;
-using System.Text;
 using System.Windows.Forms;
 using OxyPlot;
+using OxyPlot.Axes;
+using OxyPlot.Series;
+using OxyPlot.WindowsForms;
 
 namespace MouseTester
 {
-    using System.Drawing;
-    using System.Drawing.Imaging;
-    using OxyPlot.WindowsForms;
-    using OxyPlot.Annotations;
-    using OxyPlot.Axes;
-    using OxyPlot.Series;
-    
     public partial class MousePlot : Form
     {
-        private MouseLog mlog;
-        private int last_start;
-        private double last_start_time;
-        private int last_end;
-        private double last_end_time;
-        double x_min;
-        double x_max;
-        double y_min;
-        double y_max;
-        private string xlabel = "";
-        private string ylabel = "";
+        // ── Constants ──────────────────────────────────────────────────────────
+        private const double SmoothingHz       = 125.0;
+        private const double MmPerInch         = 25.4;
+        private const double MarkerSize        = 1.5;
+        private const double LineStroke        = 2.0;
+        private const double StemStroke        = 1.0;
 
+        // ── Data ───────────────────────────────────────────────────────────────
+        private MouseLog mlog;
+
+        // Time range
+        private int    last_start;
+        private double last_start_time;
+        private int    last_end;
+        private double last_end_time;
+
+        // Axis bounds computed during RecalculateSeriesData
+        private double x_min, x_max, y_min, y_max;
+        private string xlabel = "", ylabel = "";
+
+        // ── Persistent series instances (optimization: reuse, don't recreate) ──
+        private ScatterSeries _blueScatter, _redScatter;
+        // Fit lines (smoothed, shown when Lines checkbox is OFF)
+        private LineSeries _blueFitLine, _redFitLine;
+        // Raw lines (straight connections, shown when Lines checkbox is ON)
+        private LineSeries _blueRawLine, _redRawLine;
+        // Stem lines (NaN-break LineSeries, OxyPlot 2.x compatible)
+        private LineSeries _blueStem, _redStem;
+
+        private bool _useDualSeries;
+
+        // ── Constructor ────────────────────────────────────────────────────────
         public MousePlot(MouseLog Mlog)
         {
             this.Text = $"MousePlot v{Program.version}";
             InitializeComponent();
+
+            // Deep-copy the log (preserve the original shift-by-one behavior)
             this.mlog = new MouseLog();
             this.mlog.Desc = Mlog.Desc;
-            this.mlog.Cpi = Mlog.Cpi;
-            int i = 1;
-            int x = Mlog.Events[0].lastx;
-            int y = Mlog.Events[0].lasty;
-            ushort buttonflags = Mlog.Events[0].buttonflags;
-            double ts = Mlog.Events[0].ts;
+            this.mlog.Cpi  = Mlog.Cpi;
+
+            int i         = 1;
+            int x         = Mlog.Events[0].lastx;
+            int y         = Mlog.Events[0].lasty;
+            ushort bflags = Mlog.Events[0].buttonflags;
+            double ts     = Mlog.Events[0].ts;
             while (i < Mlog.Events.Count)
             {
-                this.mlog.Add(new MouseEvent(buttonflags, x, y, ts));
-                x = Mlog.Events[i].lastx;
-                y = Mlog.Events[i].lasty;
-                buttonflags = Mlog.Events[i].buttonflags;
-                ts = Mlog.Events[i].ts;
+                this.mlog.Add(new MouseEvent(bflags, x, y, ts));
+                x      = Mlog.Events[i].lastx;
+                y      = Mlog.Events[i].lasty;
+                bflags = Mlog.Events[i].buttonflags;
+                ts     = Mlog.Events[i].ts;
                 i++;
             }
-            this.mlog.Add(new MouseEvent(buttonflags, x, y, ts));
+            this.mlog.Add(new MouseEvent(bflags, x, y, ts));
 
-            this.last_end = mlog.Events.Count - 1;
+            this.last_end      = mlog.Events.Count - 1;
             this.last_end_time = Mlog.Events[this.last_end].ts;
-
             this.last_start_time = mlog.Events[last_end].ts > 100 ? 100 : 0;
-            initialize_plot();
 
-            this.comboBoxPlotType.SelectedIndex = 0;
-            this.comboBoxPlotType.SelectedIndexChanged += new System.EventHandler(this.comboBox1_SelectedIndexChanged);
+            InitializeSeries();
+            InitializePlotModel();
 
-            this.numericUpDownStart.Minimum = 0;
-            this.numericUpDownStart.Maximum = (decimal)last_end_time;
-            this.numericUpDownStart.Value = (decimal)last_start_time;
-            this.numericUpDownStart.DecimalPlaces = 3;
-            this.numericUpDownStart.Increment = 10;
-            this.numericUpDownStart.ValueChanged += new System.EventHandler(this.numericUpDownStart_ValueChanged);
+            // Wire up controls (add handlers AFTER setting initial values)
+            comboBoxPlotType.SelectedIndex = 0;
+            comboBoxPlotType.SelectedIndexChanged += comboBox1_SelectedIndexChanged;
 
-            this.numericUpDownEnd.Minimum = 0;
-            this.numericUpDownEnd.Maximum = (decimal)last_end_time;
-            this.numericUpDownEnd.Value = (decimal)last_end_time;
-            this.numericUpDownEnd.DecimalPlaces = 3;
-            this.numericUpDownEnd.Increment = 10;
-            this.numericUpDownEnd.ValueChanged += new System.EventHandler(this.numericUpDownEnd_ValueChanged);
+            numericUpDownStart.Minimum      = 0;
+            numericUpDownStart.Maximum      = (decimal)last_end_time;
+            numericUpDownStart.Value        = (decimal)last_start_time;
+            numericUpDownStart.DecimalPlaces = 3;
+            numericUpDownStart.Increment    = 10;
+            numericUpDownStart.ValueChanged += numericUpDownStart_ValueChanged;
 
-            this.checkBoxStem.Checked = false;
-            this.checkBoxStem.CheckedChanged += new System.EventHandler(this.checkBoxStem_CheckedChanged);
+            numericUpDownEnd.Minimum      = 0;
+            numericUpDownEnd.Maximum      = (decimal)last_end_time;
+            numericUpDownEnd.Value        = (decimal)last_end_time;
+            numericUpDownEnd.DecimalPlaces = 3;
+            numericUpDownEnd.Increment    = 10;
+            numericUpDownEnd.ValueChanged += numericUpDownEnd_ValueChanged;
 
-            this.checkBoxLines.Checked = false;
-            this.checkBoxLines.CheckedChanged += new System.EventHandler(this.checkBoxLines_CheckedChanged);
+            checkBoxStem.Checked        = false;
+            checkBoxStem.CheckedChanged += checkBoxStem_CheckedChanged;
 
-            // open MousePlot to "Interval vs. Time" selection
+            checkBoxLines.Checked        = false;
+            checkBoxLines.CheckedChanged += checkBoxLines_CheckedChanged;
+
+            // Open to Interval vs. Time
             comboBoxPlotType.SelectedItem = "Interval vs. Time";
-
-            refresh_plot();
+            // ^ Triggers comboBox1_SelectedIndexChanged → UpdateYRangeOptions + refresh_plot
         }
 
-        private void initialize_plot()
+        // ── Series initialisation ──────────────────────────────────────────────
+        private void InitializeSeries()
         {
-            var pm = new PlotModel(this.mlog.Desc.ToString())
+            _blueScatter = new ScatterSeries
             {
-                PlotType = PlotType.Cartesian,
-                Background = OxyColors.White,
-                Subtitle = this.mlog.Cpi.ToString() + " cpi"
+                MarkerFill            = OxyColors.Blue,
+                MarkerSize            = MarkerSize,
+                MarkerStroke          = OxyColors.Blue,
+                MarkerStrokeThickness = 1.0,
+                MarkerType            = MarkerType.Circle
             };
-            plot1.Model = pm;
+            _redScatter = new ScatterSeries
+            {
+                MarkerFill            = OxyColors.Red,
+                MarkerSize            = MarkerSize,
+                MarkerStroke          = OxyColors.Red,
+                MarkerStrokeThickness = 1.0,
+                MarkerType            = MarkerType.Circle
+            };
+
+            _blueFitLine = new LineSeries { Color = OxyColors.Blue, StrokeThickness = LineStroke };
+            _redFitLine  = new LineSeries { Color = OxyColors.Red,  StrokeThickness = LineStroke };
+            _blueRawLine = new LineSeries { Color = OxyColors.Blue, StrokeThickness = LineStroke };
+            _redRawLine  = new LineSeries { Color = OxyColors.Red,  StrokeThickness = LineStroke };
+            _blueStem    = new LineSeries { Color = OxyColors.Blue, StrokeThickness = StemStroke };
+            _redStem     = new LineSeries { Color = OxyColors.Red,  StrokeThickness = StemStroke };
         }
 
+        private void InitializePlotModel()
+        {
+            plot1.Model = new PlotModel
+            {
+                Title      = mlog.Desc,
+                PlotType   = PlotType.Cartesian,
+                Background = OxyColors.White,
+                Subtitle   = mlog.Cpi + " cpi"
+            };
+        }
+
+        // ── Refresh ────────────────────────────────────────────────────────────
         private void refresh_plot()
         {
-            for (int j = 0; j < mlog.Events.Count; j++) {
-                double currentTimeStamp = mlog.Events[j].ts;
+            FindStartEndIndices();
+            RecalculateSeriesData();
+            RebuildPlotWithCurrentOptions();
+        }
 
-                if (currentTimeStamp >= last_start_time) {
-                    last_start = j;
-                    last_start_time = currentTimeStamp;
-                    numericUpDownStart.Value = (decimal)currentTimeStamp;
+        private void FindStartEndIndices()
+        {
+            for (int j = 0; j < mlog.Events.Count; j++)
+            {
+                if (mlog.Events[j].ts >= last_start_time)
+                {
+                    last_start      = j;
+                    last_start_time = mlog.Events[j].ts;
+                    numericUpDownStart.Value = (decimal)last_start_time;
                     break;
                 }
             }
-
-            for (int j = mlog.Events.Count - 1; j >= 0; j--) {
-                double currentTimeStamp = mlog.Events[j].ts;
-
-                if (currentTimeStamp <= last_end_time) {
-                    last_end = j;
-                    last_end_time = currentTimeStamp;
-                    numericUpDownEnd.Value = (decimal)currentTimeStamp;
+            for (int j = mlog.Events.Count - 1; j >= 0; j--)
+            {
+                if (mlog.Events[j].ts <= last_end_time)
+                {
+                    last_end      = j;
+                    last_end_time = mlog.Events[j].ts;
+                    numericUpDownEnd.Value = (decimal)last_end_time;
                     break;
                 }
             }
+        }
 
+        // ── Data calculation ───────────────────────────────────────────────────
+        private void RecalculateSeriesData()
+        {
+            // Reset all series
+            _blueScatter.Points.Clear(); _redScatter.Points.Clear();
+            _blueFitLine.Points.Clear(); _redFitLine.Points.Clear();
+            _blueRawLine.Points.Clear(); _redRawLine.Points.Clear();
+            _blueStem.Points.Clear();    _redStem.Points.Clear();
+            _useDualSeries = false;
+
+            // Reset line colours (they may have been changed for single-axis plots)
+            _blueFitLine.Color = OxyColors.Blue; _redFitLine.Color = OxyColors.Red;
+            _blueRawLine.Color = OxyColors.Blue; _redRawLine.Color = OxyColors.Red;
+
+            reset_minmax();
+
+            string plotType = comboBoxPlotType.Text;
+            bool showStats  = plotType.Contains("Interval") || plotType.Contains("Frequency");
+            statisticsGroupBox.Visible = showStats;
+            groupBoxYRange.Visible     = showStats;
+
+            if (plotType.Contains("xyCount"))
+            {
+                xlabel = "Time (ms)";
+                ylabel = "Counts [x = Blue, y = Red]";
+                _useDualSeries = true;
+                FillSingleAxisSeries(i => mlog.Events[i].lastx, _blueScatter, _blueRawLine, _blueStem);
+                FillSingleAxisSeries(i => mlog.Events[i].lasty, _redScatter,  _redRawLine,  _redStem);
+                ApplyFit(_blueScatter, _blueFitLine);
+                ApplyFit(_redScatter,  _redFitLine);
+            }
+            else if (plotType.Contains("xCount"))
+            {
+                xlabel = "Time (ms)"; ylabel = "xCounts";
+                FillSingleAxisSeries(i => mlog.Events[i].lastx, _blueScatter, _blueRawLine, _blueStem);
+                ApplyFit(_blueScatter, _blueFitLine);
+                _blueFitLine.Color = OxyColors.Green;
+            }
+            else if (plotType.Contains("yCount"))
+            {
+                xlabel = "Time (ms)"; ylabel = "yCounts";
+                FillSingleAxisSeries(i => mlog.Events[i].lasty, _blueScatter, _blueRawLine, _blueStem);
+                ApplyFit(_blueScatter, _blueFitLine);
+                _blueFitLine.Color = OxyColors.Green;
+            }
+            else if (plotType.Contains("Interval") || plotType.Contains("Frequency"))
+            {
+                FillIntervalSeries(plotType.Contains("Interval"));
+                _blueFitLine.Color = OxyColors.Green;
+            }
+            else if (plotType.Contains("xyVelocity"))
+            {
+                xlabel = "Time (ms)"; ylabel = "Velocity (m/s) [x = Blue, y = Red]";
+                _useDualSeries = true;
+                if (mlog.Cpi <= 0) { MessageBox.Show("CPI value is invalid, please run Measure"); return; }
+                FillVelocitySeries(e => e.lastx, _blueScatter, _blueRawLine, _blueStem);
+                FillVelocitySeries(e => e.lasty, _redScatter,  _redRawLine,  _redStem);
+                ApplyFit(_blueScatter, _blueFitLine);
+                ApplyFit(_redScatter,  _redFitLine);
+            }
+            else if (plotType.Contains("xVelocity"))
+            {
+                xlabel = "Time (ms)"; ylabel = "xVelocity (m/s)";
+                if (mlog.Cpi <= 0) { MessageBox.Show("CPI value is invalid, please run Measure"); return; }
+                FillVelocitySeries(e => e.lastx, _blueScatter, _blueRawLine, _blueStem);
+                ApplyFit(_blueScatter, _blueFitLine);
+                _blueFitLine.Color = OxyColors.Green;
+            }
+            else if (plotType.Contains("yVelocity"))
+            {
+                xlabel = "Time (ms)"; ylabel = "yVelocity (m/s)";
+                if (mlog.Cpi <= 0) { MessageBox.Show("CPI value is invalid, please run Measure"); return; }
+                FillVelocitySeries(e => e.lasty, _blueScatter, _blueRawLine, _blueStem);
+                ApplyFit(_blueScatter, _blueFitLine);
+                _blueFitLine.Color = OxyColors.Green;
+            }
+            else if (plotType.Contains("X vs. Y"))
+            {
+                FillXvsYSeries();
+            }
+        }
+
+        // ── Series fill helpers ────────────────────────────────────────────────
+        private void FillSingleAxisSeries(
+            Func<int, double> valueAt,
+            ScatterSeries scatter, LineSeries rawLine, LineSeries stem)
+        {
+            for (int i = last_start; i <= last_end; i++)
+            {
+                double x = mlog.Events[i].ts;
+                double y = valueAt(i);
+                update_minmax(x, y);
+                scatter.Points.Add(new ScatterPoint(x, y));
+                rawLine.Points.Add(new DataPoint(x, y));
+                AddStemPoint(stem, x, y);
+            }
+        }
+
+        private void FillVelocitySeries(
+            Func<MouseEvent, int> axisSelector,
+            ScatterSeries scatter, LineSeries rawLine, LineSeries stem)
+        {
+            for (int i = last_start; i <= last_end; i++)
+            {
+                double x = mlog.Events[i].ts;
+                double y = i == 0 ? 0.0 : CalcVelocity(i, axisSelector);
+                update_minmax(x, y);
+                scatter.Points.Add(new ScatterPoint(x, y));
+                rawLine.Points.Add(new DataPoint(x, y));
+                AddStemPoint(stem, x, y);
+            }
+        }
+
+        private double CalcVelocity(int i, Func<MouseEvent, int> axisSelector)
+        {
+            double dt = mlog.Events[i].ts - mlog.Events[i - 1].ts;
+            if (dt == 0) return 0;
+            return axisSelector(mlog.Events[i]) / dt / mlog.Cpi * MmPerInch;
+        }
+
+        private void FillXvsYSeries()
+        {
+            xlabel = "xCounts"; ylabel = "yCounts";
+            double cx = 0, cy = 0;
+            for (int i = last_start; i <= last_end; i++)
+            {
+                cx += mlog.Events[i].lastx;
+                cy += mlog.Events[i].lasty;
+                update_minmax(cx, cx);
+                update_minmax(cy, cy);
+                _blueScatter.Points.Add(new ScatterPoint(cx, cy));
+                _blueRawLine.Points.Add(new DataPoint(cx, cy));
+            }
+            _blueRawLine.Color = OxyColors.Green;
+        }
+
+        private void FillIntervalSeries(bool isInterval)
+        {
+            xlabel = "Time (ms)";
+
+            double firstPct, secondPct;
+            if (isInterval)
+            {
+                ylabel = "Update Time (ms)";
+                firstPct = 99;   firstPercentileMetricLabel.Text  = "99 Percentile:";
+                secondPct = 99.9; secondPercentileMetricLabel.Text = "99.9 Percentile:";
+            }
+            else
+            {
+                ylabel = "Frequency (Hz)";
+                firstPct = 1;   firstPercentileMetricLabel.Text  = "1 Percentile:";
+                secondPct = 0.1; secondPercentileMetricLabel.Text = "0.1 Percentile:";
+            }
+
+            Func<double, double> transform = isInterval ? (v => v) : (v => 1000.0 / v);
+
+            var intervals = new List<double>();
+            for (int i = last_start; i <= last_end; i++)
+            {
+                double rawInterval = i == 0 ? 0.0 : (mlog.Events[i].ts - mlog.Events[i - 1].ts);
+                double x = mlog.Events[i].ts;
+                double y = transform(rawInterval);
+                intervals.Add(rawInterval);
+                update_minmax(x, y);
+                _blueScatter.Points.Add(new ScatterPoint(x, y));
+                _blueRawLine.Points.Add(new DataPoint(x, y));
+                AddStemPoint(_blueStem, x, y);
+            }
+
+            ApplyFit(_blueScatter, _blueFitLine);
+
+            // Statistics
+            var desc = intervals.OrderByDescending(v => v).ToList();
+            var asc  = intervals.OrderBy(v => v).ToList();
+            int count   = intervals.Count;
+            int lastIdx = count - 1;
+            double avg = transform(desc.Sum() / count);
+            double squaredDevs = intervals.Sum(v => Math.Pow(transform(v) - avg, 2));
+
+            double tMax = transform(isInterval ? desc[0]       : desc[lastIdx]);
+            double tMin = transform(isInterval ? desc[lastIdx]  : desc[0]);
+
+            maxInterval.Text   = $"{tMax:0.0000####}";
+            minInterval.Text   = $"{tMin:0.0000####}";
+            avgInterval.Text   = $"{avg:0.0000####}";
+            stdevInterval.Text = $"{Math.Sqrt(squaredDevs / lastIdx):0.0000####}";
+            rangeInterval.Text = $"{Math.Abs(tMax - tMin):0.0000####}";
+
+            int midIdx = count / 2;
+            double median = count % 2 == 1
+                ? transform(desc[midIdx])
+                : transform((desc[midIdx - 1] + desc[midIdx]) / 2);
+            medianInterval.Text = $"{median:0.0000####}";
+
+            var pList = isInterval ? asc : desc;
+            firstPercentileInterval.Text  = $"{transform(pList[(int)Math.Ceiling(firstPct  / 100.0 * count) - 1]):0.0000####}";
+            secondPercentileInterval.Text = $"{transform(pList[(int)Math.Ceiling(secondPct / 100.0 * count) - 1]):0.0000####}";
+        }
+
+        private static void AddStemPoint(LineSeries stemLine, double x, double y)
+        {
+            stemLine.Points.Add(new DataPoint(x, 0));
+            stemLine.Points.Add(new DataPoint(x, y));
+            stemLine.Points.Add(new DataPoint(double.NaN, double.NaN)); // break
+        }
+
+        // Time-based smoothing fit (125 Hz window)
+        private void ApplyFit(ScatterSeries source, LineSeries target)
+        {
+            target.Points.Clear();
+            if (source.Points.Count == 0) return;
+            double ms = 1000.0 / SmoothingHz;
+            int ind = 0;
+            double xMax = source.Points[source.Points.Count - 1].X;
+            for (double x = ms; x <= xMax; x += ms)
+            {
+                double sum = 0;
+                int cnt = 0;
+                while (ind < source.Points.Count && source.Points[ind].X <= x)
+                {
+                    sum += source.Points[ind++].Y;
+                    cnt++;
+                }
+                if (cnt > 0)
+                    target.Points.Add(new DataPoint(x - ms / 2.0, sum / cnt));
+            }
+        }
+
+        // ── Plot rebuild (no data recalculation) ───────────────────────────────
+        private void RebuildPlotWithCurrentOptions()
+        {
             PlotModel pm = plot1.Model;
             pm.Series.Clear();
             pm.Axes.Clear();
-            OxyColor singleLineColor = OxyColors.Green;
 
-            var scatterSeries1 = new ScatterSeries
-            {
-                BinSize = 8,
-                MarkerFill = OxyColors.Blue,
-                MarkerSize = 1.5,
-                MarkerStroke = OxyColors.Blue,
-                MarkerStrokeThickness = 1.0,
-                MarkerType = MarkerType.Circle
-            };
+            bool isXvsY = comboBoxPlotType.Text.Contains("X vs. Y");
 
-            var scatterSeries2 = new ScatterSeries
-            {
-                BinSize = 8,
-                MarkerFill = OxyColors.Red,
-                MarkerSize = 1.5,
-                MarkerStroke = OxyColors.Red,
-                MarkerStrokeThickness = 1.0,
-                MarkerType = MarkerType.Circle
-            };
+            // Always add scatter
+            pm.Series.Add(_blueScatter);
+            if (_useDualSeries) pm.Series.Add(_redScatter);
 
-            var lineSeries1 = new LineSeries
+            if (!isXvsY)
             {
-                Color = OxyColors.Blue,
-                LineStyle = LineStyle.Solid,
-                StrokeThickness = 2.0,
-                Smooth = true
-            };
-
-            var lineSeries2 = new LineSeries
-            {
-                Color = OxyColors.Red,
-                LineStyle = LineStyle.Solid,
-                StrokeThickness = 2.0,
-                Smooth = true
-            };            
-
-            if (checkBoxLines.Checked)
-            {
-                lineSeries1.Smooth = false;
-                lineSeries2.Smooth = false;
-            }
-
-            var stemSeries1 = new StemSeries
-            {
-                Color = OxyColors.Blue,
-                StrokeThickness = 1.0,
-            };
-
-            var stemSeries2 = new StemSeries
-            {
-                Color = OxyColors.Red,
-                StrokeThickness = 1.0
-            };
-
-            // Only display statistics when "Interval" or "Frequency" is selected
-            statisticsGroupBox.Visible = comboBoxPlotType.Text.Contains("Interval") || comboBoxPlotType.Text.Contains("Frequency");
-
-            if (comboBoxPlotType.Text.Contains("xyCount"))
-            {
-                plot_xycounts_vs_time(scatterSeries1, scatterSeries2, stemSeries1, stemSeries2, lineSeries1, lineSeries2);
-                pm.Series.Add(scatterSeries1);
-                pm.Series.Add(scatterSeries2);
-                if (!checkBoxLines.Checked)
-                {
-                    plot_fit(scatterSeries1, lineSeries1);
-                    plot_fit(scatterSeries2, lineSeries2);
-                }
-                pm.Series.Add(lineSeries1);
-                pm.Series.Add(lineSeries2);
-                if (checkBoxStem.Checked)
-                {
-                    pm.Series.Add(stemSeries1);
-                    pm.Series.Add(stemSeries2);
-                }
-            }
-            else if (comboBoxPlotType.Text.Contains("xCount"))
-            {
-                plot_xcounts_vs_time(scatterSeries1, stemSeries1, lineSeries1);
-                pm.Series.Add(scatterSeries1);
-                if (!checkBoxLines.Checked)
-                {
-                    plot_fit(scatterSeries1, lineSeries1);
-                    lineSeries1.Color = singleLineColor;
-                }
-                pm.Series.Add(lineSeries1);
-                if (checkBoxStem.Checked)
-                {
-                    pm.Series.Add(stemSeries1);
-                }
-            }
-            else if (comboBoxPlotType.Text.Contains("yCount"))            
-            {
-                plot_ycounts_vs_time(scatterSeries1, stemSeries1, lineSeries1);
-                pm.Series.Add(scatterSeries1);
-                if (!checkBoxLines.Checked)
-                {
-                    plot_fit(scatterSeries1, lineSeries1);
-                    lineSeries1.Color = singleLineColor;
-                }
-                pm.Series.Add(lineSeries1);
-                if (checkBoxStem.Checked)
-                {
-                    pm.Series.Add(stemSeries1);
-                }
-
-            }
-            else if (comboBoxPlotType.Text.Contains("Interval") || comboBoxPlotType.Text.Contains("Frequency"))
-            {
-                plot_interval_vs_time(scatterSeries1, stemSeries1, lineSeries1, comboBoxPlotType.Text.Contains("Interval"), (value) => comboBoxPlotType.Text.Contains("Interval") ? value : 1000 / value);
-                pm.Series.Add(scatterSeries1);
-                if (!checkBoxLines.Checked)
-                {
-                    plot_fit(scatterSeries1, lineSeries1);
-                    lineSeries1.Color = singleLineColor;
-                }
-                pm.Series.Add(lineSeries1);
-                if (checkBoxStem.Checked)
-                {
-                    pm.Series.Add(stemSeries1);
-                }
-
-            }
-            else if (comboBoxPlotType.Text.Contains("xyVelocity"))
-            {
-                plot_xyvelocity_vs_time(scatterSeries1, scatterSeries2, stemSeries1, stemSeries2, lineSeries1, lineSeries2);
-                pm.Series.Add(scatterSeries1);
-                pm.Series.Add(scatterSeries2);
-                if (!checkBoxLines.Checked)
-                {
-                    plot_fit(scatterSeries1, lineSeries1);
-                    plot_fit(scatterSeries2, lineSeries2);
-                }
-                pm.Series.Add(lineSeries1);
-                pm.Series.Add(lineSeries2);
-                if (checkBoxStem.Checked)
-                {
-                    pm.Series.Add(stemSeries1);
-                    pm.Series.Add(stemSeries2);
-                }
-
-            }
-            else if (comboBoxPlotType.Text.Contains("xVelocity"))
-            {
-                plot_xvelocity_vs_time(scatterSeries1, stemSeries1, lineSeries1);
-                pm.Series.Add(scatterSeries1);
-                if (!checkBoxLines.Checked)
-                {
-                    plot_fit(scatterSeries1, lineSeries1);
-                    lineSeries1.Color = singleLineColor;
-                }
-                pm.Series.Add(lineSeries1);
-                if (checkBoxStem.Checked)
-                {
-                    pm.Series.Add(stemSeries1);
-                }
-            }
-            else if (comboBoxPlotType.Text.Contains("yVelocity"))
-            {
-                plot_yvelocity_vs_time(scatterSeries1, stemSeries1, lineSeries1);
-                pm.Series.Add(scatterSeries1);
-                if (!checkBoxLines.Checked)
-                {
-                    plot_fit(scatterSeries1, lineSeries1);
-                    lineSeries1.Color = singleLineColor;
-                }
-                pm.Series.Add(lineSeries1);
-                if (checkBoxStem.Checked)
-                {
-                    pm.Series.Add(stemSeries1);
-                }
-            }
-            else if (comboBoxPlotType.Text.Contains("X vs. Y"))
-            {
-                plot_x_vs_y(scatterSeries1, lineSeries1);
-                pm.Series.Add(scatterSeries1);
+                // Line: fit (default) or raw (Lines checkbox)
                 if (checkBoxLines.Checked)
                 {
-                    pm.Series.Add(lineSeries1);
-                    lineSeries1.Color = singleLineColor;
+                    pm.Series.Add(_blueRawLine);
+                    if (_useDualSeries) pm.Series.Add(_redRawLine);
+                }
+                else
+                {
+                    pm.Series.Add(_blueFitLine);
+                    if (_useDualSeries) pm.Series.Add(_redFitLine);
+                }
+
+                // Stem
+                if (checkBoxStem.Checked)
+                {
+                    pm.Series.Add(_blueStem);
+                    if (_useDualSeries) pm.Series.Add(_redStem);
                 }
             }
+            else
+            {
+                if (checkBoxLines.Checked)
+                    pm.Series.Add(_blueRawLine); // green, set in FillXvsYSeries
+            }
 
-            var linearAxis1 = new LinearAxis();
-            linearAxis1.AbsoluteMinimum = x_min - (x_max - x_min) / 20.0;
-            linearAxis1.AbsoluteMaximum = x_max + (x_max - x_min) / 20.0;
-            linearAxis1.MajorGridlineColor = OxyColor.FromArgb(40, 0, 0, 139);
-            linearAxis1.MajorGridlineStyle = LineStyle.Solid;
-            linearAxis1.MinorGridlineColor = OxyColor.FromArgb(20, 0, 0, 139);
-            linearAxis1.MinorGridlineStyle = LineStyle.Solid;
-            linearAxis1.Position = AxisPosition.Bottom;
-            linearAxis1.Title = xlabel;
-            pm.Axes.Add(linearAxis1);
+            // X axis
+            double xMargin = x_max > x_min ? (x_max - x_min) / 20.0 : 1.0;
+            pm.Axes.Add(new LinearAxis
+            {
+                Position              = AxisPosition.Bottom,
+                Title                 = xlabel,
+                AbsoluteMinimum       = x_min - xMargin,
+                AbsoluteMaximum       = x_max + xMargin,
+                MajorGridlineColor    = OxyColor.FromArgb(40, 0, 0, 139),
+                MajorGridlineStyle    = LineStyle.Solid,
+                MinorGridlineColor    = OxyColor.FromArgb(20, 0, 0, 139),
+                MinorGridlineStyle    = LineStyle.Solid
+            });
 
-            var linearAxis2 = new LinearAxis();
-            linearAxis2.AbsoluteMinimum = y_min - (y_max - y_min) / 20.0;
-            linearAxis2.AbsoluteMaximum = y_max + (y_max - y_min) / 20.0;
-            linearAxis2.MajorGridlineColor = OxyColor.FromArgb(40, 0, 0, 139);
-            linearAxis2.MajorGridlineStyle = LineStyle.Solid;
-            linearAxis2.MinorGridlineColor = OxyColor.FromArgb(20, 0, 0, 139);
-            linearAxis2.MinorGridlineStyle = LineStyle.Solid;
-            linearAxis2.Title = ylabel;
-            pm.Axes.Add(linearAxis2);
+            // Y axis
+            var yAxis = new LinearAxis
+            {
+                Title              = ylabel,
+                MajorGridlineColor = OxyColor.FromArgb(40, 0, 0, 139),
+                MajorGridlineStyle = LineStyle.Solid,
+                MinorGridlineColor = OxyColor.FromArgb(20, 0, 0, 139),
+                MinorGridlineStyle = LineStyle.Solid
+            };
 
-            plot1.RefreshPlot(true);
+            double yPreset = GetYRangePreset();
+            if (!double.IsNaN(yPreset))
+            {
+                yAxis.Minimum        = 0;
+                yAxis.Maximum        = yPreset;
+                yAxis.AbsoluteMinimum = 0;
+                yAxis.AbsoluteMaximum = yPreset;
+            }
+            else
+            {
+                double yMargin = y_max > y_min ? (y_max - y_min) / 20.0 : 1.0;
+                yAxis.AbsoluteMinimum = y_min - yMargin;
+                yAxis.AbsoluteMaximum = y_max + yMargin;
+            }
+            pm.Axes.Add(yAxis);
+
+            plot1.InvalidatePlot(true);
         }
 
+        // ── Y Range preset ─────────────────────────────────────────────────────
+        private double GetYRangePreset()
+        {
+            if (comboBoxYRange == null || comboBoxYRange.Items.Count == 0) return double.NaN;
+            int idx = comboBoxYRange.SelectedIndex;
+            if (idx <= 0) return double.NaN;
+
+            if (comboBoxPlotType.Text.Contains("Frequency"))
+            {
+                double[] presets = { double.NaN, 2000, 4000, 8000, 16000 };
+                return idx < presets.Length ? presets[idx] : double.NaN;
+            }
+            if (comboBoxPlotType.Text.Contains("Interval"))
+            {
+                double[] presets = { double.NaN, 2.0, 1.0, 0.5, 0.25 };
+                return idx < presets.Length ? presets[idx] : double.NaN;
+            }
+            return double.NaN;
+        }
+
+        private void UpdateYRangeOptions()
+        {
+            comboBoxYRange.SelectedIndexChanged -= comboBoxYRange_SelectedIndexChanged;
+            comboBoxYRange.Items.Clear();
+
+            string plotType = comboBoxPlotType.Text;
+            if (plotType.Contains("Frequency"))
+            {
+                comboBoxYRange.Items.AddRange(new object[]
+                    { "Auto", "1000 Hz (0~2k)", "2000 Hz (0~4k)", "4000 Hz (0~8k)", "8000 Hz (0~16k)" });
+                groupBoxYRange.Visible = true;
+            }
+            else if (plotType.Contains("Interval"))
+            {
+                comboBoxYRange.Items.AddRange(new object[]
+                    { "Auto", "1ms (0~2ms)", "0.5ms (0~1ms)", "0.25ms (0~0.5ms)", "0.125ms (0~0.25ms)" });
+                groupBoxYRange.Visible = true;
+            }
+            else
+            {
+                comboBoxYRange.Items.Add("Auto");
+                groupBoxYRange.Visible = false;
+            }
+
+            comboBoxYRange.SelectedIndex = 0;
+            comboBoxYRange.SelectedIndexChanged += comboBoxYRange_SelectedIndexChanged;
+        }
+
+        // ── Axis helpers ───────────────────────────────────────────────────────
         private void reset_minmax()
         {
-            x_min = double.MaxValue;
-            x_max = double.MinValue;
-            y_min = double.MaxValue;
-            y_max = double.MinValue;
+            x_min = double.MaxValue; x_max = double.MinValue;
+            y_min = double.MaxValue; y_max = double.MinValue;
         }
 
         private void update_minmax(double x, double y)
         {
-            if (x < x_min)
-            {
-                x_min = x;
-            }
-            if (x > x_max)
-            {
-                x_max = x;
-            }
-            if (y < y_min)
-            {
-                y_min = y;
-            }
-            if (y > y_max)
-            {
-                y_max = y;
-            }
+            if (x < x_min) x_min = x;
+            if (x > x_max) x_max = x;
+            if (y < y_min) y_min = y;
+            if (y > y_max) y_max = y;
         }
 
-        private void plot_xcounts_vs_time(ScatterSeries scatterSeries1, StemSeries stemSeries1, LineSeries lineSeries1)
-        {
-            xlabel = "Time (ms)";
-            ylabel = "xCounts";
-            reset_minmax();
-            for (int i = last_start; i <= last_end; i++)
-            {
-                double x = this.mlog.Events[i].ts;
-                double y = this.mlog.Events[i].lastx;
-                update_minmax(x, y);
-                scatterSeries1.Points.Add(new ScatterPoint(x, y));
-                lineSeries1.Points.Add(new DataPoint(x, y));
-                stemSeries1.Points.Add(new DataPoint(x, y));
-            }
-        }
-
-        private void plot_ycounts_vs_time(ScatterSeries scatterSeries1, StemSeries stemSeries1, LineSeries lineSeries1)
-        {
-            xlabel = "Time (ms)";
-            ylabel = "yCounts";
-            reset_minmax();
-            for (int i = last_start; i <= last_end; i++)
-            {
-                double x = this.mlog.Events[i].ts;
-                double y = this.mlog.Events[i].lasty;
-                update_minmax(x, y);
-                scatterSeries1.Points.Add(new ScatterPoint(x, y));
-                lineSeries1.Points.Add(new DataPoint(x, y));
-                stemSeries1.Points.Add(new DataPoint(x, y));
-            }
-        }
-
-        private void plot_xycounts_vs_time(ScatterSeries scatterSeries1, ScatterSeries scatterSeries2, StemSeries stemSeries1, StemSeries stemSeries2, LineSeries lineSeries1, LineSeries lineSeries2)
-        {
-            xlabel = "Time (ms)";
-            ylabel = "Counts [x = Blue, y = Red]";
-            reset_minmax();
-            for (int i = last_start; i <= last_end; i++)
-            {
-                double x = this.mlog.Events[i].ts;
-                double y = this.mlog.Events[i].lastx;
-                update_minmax(x, y);
-                scatterSeries1.Points.Add(new ScatterPoint(x, y));
-                lineSeries1.Points.Add(new DataPoint(x, y));
-                stemSeries1.Points.Add(new DataPoint(x, y));
-            }
-
-            for (int i = last_start; i <= last_end; i++)
-            {
-                double x = this.mlog.Events[i].ts;
-                double y = this.mlog.Events[i].lasty;
-                update_minmax(x, y);
-                scatterSeries2.Points.Add(new ScatterPoint(x, y));
-                lineSeries2.Points.Add(new DataPoint(x, y));
-                stemSeries2.Points.Add(new DataPoint(x, y));
-            }
-        }
-
-        private void plot_interval_vs_time(ScatterSeries scatterSeries1, StemSeries stemSeries1, LineSeries lineSeries1, bool isInterval, Func<double, double> transformFunction)
-        {
-            xlabel = "Time (ms)";
-
-            double firstPercentileMetric;
-            double secondPercentileMetric;
-
-            if (isInterval) {
-                ylabel = "Update Time (ms)";
-                firstPercentileMetric = 99;
-                firstPercentileMetricLabel.Text = "99 Percentile:";
-                secondPercentileMetric = 99.9;
-                secondPercentileMetricLabel.Text = "99.9 Percentile:";
-            } else {
-                ylabel = "Frequency (Hz)";
-                firstPercentileMetric = 1;
-                firstPercentileMetricLabel.Text = "1 Percentile:";
-                secondPercentileMetric = 0.1;
-                secondPercentileMetricLabel.Text = "0.1 Percentile:";
-            }
-
-            List<double> intervals = new List<double>();
-            reset_minmax();
-            for (int i = last_start; i <= last_end; i++)
-            {
-                double x = this.mlog.Events[i].ts;
-                double y;
-                if (i == 0)
-                {
-                    y = 0.0;
-                }
-                else
-                {
-                    y = this.mlog.Events[i].ts - this.mlog.Events[i - 1].ts;
-                }
-                intervals.Add(y);
-                update_minmax(x, transformFunction(y));
-                scatterSeries1.Points.Add(new ScatterPoint(x, transformFunction(y)));
-                lineSeries1.Points.Add(new DataPoint(x, transformFunction(y)));
-                stemSeries1.Points.Add(new DataPoint(x, transformFunction(y)));
-            }
-
-            // Calculate statistics
-
-            List<double> intervals_descending = intervals.OrderByDescending(x => x).ToList();
-            List<double> intervals_ascending = intervals.OrderBy(x => x).ToList();
-
-            double sum = intervals_descending.Sum();
-            int count = intervals_descending.Count();
-            double average = transformFunction(sum / count);
-            double squared_deviations = 0.0;
-            int middle_index = count / 2;
-            int last_index = count - 1;
-            double range = intervals_descending[0] - intervals_descending[last_index];
-
-            foreach (double interval in intervals)
-            {
-                squared_deviations += Math.Pow(transformFunction(interval) - average, 2);
-            }
-            double maximumValue = transformFunction(isInterval ? intervals_descending[0] : intervals_descending[last_index]);
-            double minimumValue = transformFunction(isInterval ? intervals_descending[last_index] : intervals_descending[0]);
-
-            maxInterval.Text = $"{maximumValue:0.0000####}";
-            minInterval.Text = $"{minimumValue:0.0000####}";
-            avgInterval.Text = $"{average:0.0000####}";
-            stdevInterval.Text = $"{Math.Sqrt(squared_deviations / (last_index)):0.0000####}";
-            rangeInterval.Text = $"{maximumValue - minimumValue:0.0000####}";
-            medianInterval.Text = $"{(transformFunction(count % 2 == 1 ? intervals_descending[middle_index] : (intervals_descending[middle_index - 1] + intervals_descending[middle_index]) / 2)):0.0000####}";
-
-            List<double> percentiles_list = isInterval ? intervals_ascending : intervals_descending;
-
-            firstPercentileInterval.Text = $"{transformFunction(percentiles_list[(int) Math.Ceiling(firstPercentileMetric / 100 * count) - 1]):0.0000####}";
-            secondPercentileInterval.Text = $"{transformFunction(percentiles_list[(int)Math.Ceiling(secondPercentileMetric / 100 * count) - 1]):0.0000####}";
-        }
-
-        private void plot_xvelocity_vs_time(ScatterSeries scatterSeries1, StemSeries stemSeries1, LineSeries lineSeries1)
-        {
-            xlabel = "Time (ms)";
-            ylabel = "xVelocity (m/s)";
-            reset_minmax();
-            if (this.mlog.Cpi > 0)
-            {
-                for (int i = last_start; i <= last_end; i++)
-                {
-                    double x = this.mlog.Events[i].ts;
-                    double y;
-                    if (i == 0)
-                    {
-                        y = 0.0;
-                    }
-                    else
-                    {
-                        y = (this.mlog.Events[i].lastx) / (this.mlog.Events[i].ts - this.mlog.Events[i - 1].ts) / this.mlog.Cpi * 25.4;
-                    }
-                    update_minmax(x, y);
-                    scatterSeries1.Points.Add(new ScatterPoint(x, y));
-                    lineSeries1.Points.Add(new DataPoint(x, y));
-                    stemSeries1.Points.Add(new DataPoint(x, y));
-                }
-            }
-            else
-            {
-                MessageBox.Show("CPI value is invalid, please run Measure");
-            }
-        }
-
-        private void plot_yvelocity_vs_time(ScatterSeries scatterSeries1, StemSeries stemSeries1, LineSeries lineSeries1)
-        {
-            xlabel = "Time (ms)";
-            ylabel = "yVelocity (m/s)";
-            reset_minmax();
-            if (this.mlog.Cpi > 0)
-            {
-                for (int i = last_start; i <= last_end; i++)
-                {
-                    double x = this.mlog.Events[i].ts;
-                    double y;
-                    if (i == 0)
-                    {
-                        y = 0.0;
-                    }
-                    else
-                    {
-                        y = (this.mlog.Events[i].lasty) / (this.mlog.Events[i].ts - this.mlog.Events[i - 1].ts) / this.mlog.Cpi * 25.4;
-                    }
-                    update_minmax(x, y);
-                    scatterSeries1.Points.Add(new ScatterPoint(x, y));
-                    lineSeries1.Points.Add(new DataPoint(x, y));
-                    stemSeries1.Points.Add(new DataPoint(x, y));
-                }
-            }
-            else
-            {
-                MessageBox.Show("CPI value is invalid, please run Measure");
-            }
-        }
-
-        private void plot_xyvelocity_vs_time(ScatterSeries scatterSeries1, ScatterSeries scatterSeries2, StemSeries stemSeries1, StemSeries stemSeries2, LineSeries lineSeries1, LineSeries lineSeries2)
-        {
-            xlabel = "Time (ms)";
-            ylabel = "Velocity (m/s) [x = Blue, y = Red]";
-            reset_minmax();
-            if (this.mlog.Cpi > 0)
-            {
-                for (int i = last_start; i <= last_end; i++)
-                {
-                    double x = this.mlog.Events[i].ts;
-                    double y;
-                    if (i == 0)
-                    {
-                        y = 0.0;
-                    }
-                    else
-                    {
-                        y = (this.mlog.Events[i].lastx) / (this.mlog.Events[i].ts - this.mlog.Events[i - 1].ts) / this.mlog.Cpi * 25.4;
-                    }
-                    update_minmax(x, y);
-                    scatterSeries1.Points.Add(new ScatterPoint(x, y));
-                    lineSeries1.Points.Add(new DataPoint(x, y));
-                    stemSeries1.Points.Add(new DataPoint(x, y));
-                }
-
-                for (int i = last_start; i <= last_end; i++)
-                {
-                    double x = this.mlog.Events[i].ts;
-                    double y;
-                    if (i == 0)
-                    {
-                        y = 0.0;
-                    }
-                    else
-                    {
-                        y = (this.mlog.Events[i].lasty) / (this.mlog.Events[i].ts - this.mlog.Events[i - 1].ts) / this.mlog.Cpi * 25.4;
-                    }
-                    update_minmax(x, y);
-                    scatterSeries2.Points.Add(new ScatterPoint(x, y));
-                    lineSeries2.Points.Add(new DataPoint(x, y));
-                    stemSeries2.Points.Add(new DataPoint(x, y));
-                }
-            }
-            else
-            {
-                MessageBox.Show("CPI value is invalid, please run Measure");
-            }
-        }
-
-        private void plot_x_vs_y(ScatterSeries scatterSeries1, LineSeries lineSeries1)
-        {
-            xlabel = "xCounts";
-            ylabel = "yCounts";
-            reset_minmax();
-            double x = 0.0;
-            double y = 0.0;
-            for (int i = last_start; i <= last_end; i++)
-            {
-                x += this.mlog.Events[i].lastx;
-                y += this.mlog.Events[i].lasty;
-                update_minmax(x, x);
-                update_minmax(y, y);
-                scatterSeries1.Points.Add(new ScatterPoint(x, y));
-                lineSeries1.Points.Add(new DataPoint(x, y));
-            }
-        }
-
-#if false
-// Window based smoothing
-        private void plot_fit(ScatterSeries scatterSeries1, LineSeries lineSeries1)
-        {
-            double sum = 0.0;
-
-            lineSeries1.Points.Clear();
-
-            for (int i = 0; ((i < 8) && (i < scatterSeries1.Points.Count)); i++)
-                //for (int i = 0; ((i < 4) && (i < scatterSeries1.Points.Count)); i++)
-            {
-                sum = sum + scatterSeries1.Points[i].Y;
-            }
-
-            for (int i = 3; i < scatterSeries1.Points.Count - 5; i++)
-                //for (int i = 1; i < scatterSeries1.Points.Count - 3; i++)
-            {
-                double x = (scatterSeries1.Points[i].X + scatterSeries1.Points[i + 1].X) / 2.0;
-                double y = sum;
-                lineSeries1.Points.Add(new DataPoint(x, y / 8.0));
-                sum = sum - scatterSeries1.Points[i - 3].Y;
-                sum = sum + scatterSeries1.Points[i + 5].Y;
-                //lineSeries1.Points.Add(new DataPoint(x, y / 4.0));
-                //sum = sum - scatterSeries1.Points[i - 1].Y;
-                //sum = sum + scatterSeries1.Points[i + 3].Y;
-
-            }
-        }
-#else
-// Time based smoothing
-        private void plot_fit(ScatterSeries scatterSeries1, LineSeries lineSeries1)
-        {
-            double hz = 125;
-            double ms = 1000.0 / hz;
-            lineSeries1.Points.Clear();
-
-            int ind = 0;
-            for (double x = ms; x <= scatterSeries1.Points[scatterSeries1.Points.Count - 1].X; x += ms)
-            {
-                double sum = 0.0;
-                int count = 0;
-                while (scatterSeries1.Points[ind].X <= x)
-                {
-                    sum += scatterSeries1.Points[ind++].Y;
-                    count++;
-                }
-                lineSeries1.Points.Add(new DataPoint(x - (ms / 2.0), sum / count));
-            }
-        }
-#endif
-
+        // ── Event handlers ─────────────────────────────────────────────────────
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
+            UpdateYRangeOptions();
             refresh_plot();
+        }
+
+        private void comboBoxYRange_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            RebuildPlotWithCurrentOptions();
         }
 
         private void numericUpDownStart_ValueChanged(object sender, EventArgs e)
         {
             if (numericUpDownStart.Value >= numericUpDownEnd.Value)
-            {
                 numericUpDownStart.Value = (decimal)last_start_time;
-            }
             else
             {
                 last_start_time = (double)numericUpDownStart.Value;
@@ -697,9 +577,7 @@ namespace MouseTester
         private void numericUpDownEnd_ValueChanged(object sender, EventArgs e)
         {
             if (numericUpDownEnd.Value <= numericUpDownStart.Value)
-            {
                 numericUpDownEnd.Value = (decimal)last_end_time;
-            }
             else
             {
                 last_end_time = (double)numericUpDownEnd.Value;
@@ -709,30 +587,51 @@ namespace MouseTester
 
         private void checkBoxStem_CheckedChanged(object sender, EventArgs e)
         {
-            refresh_plot();
+            RebuildPlotWithCurrentOptions();
         }
 
         private void checkBoxLines_CheckedChanged(object sender, EventArgs e)
         {
-            refresh_plot();
+            RebuildPlotWithCurrentOptions();
         }
 
+        // ── PNG export (fixed 3840×2160, white background) ─────────────────────
         private void buttonSavePNG_Click(object sender, EventArgs e)
         {
-            SaveFileDialog saveFileDialog1 = new SaveFileDialog();
-            saveFileDialog1.Filter = "PNG Files (*.png)|*.png";
-            saveFileDialog1.FilterIndex = 1;
-            if (saveFileDialog1.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            // Default to a "screenshot" folder next to the executable
+            string screenshotDir = Path.Combine(AppContext.BaseDirectory, "screenshot");
+            Directory.CreateDirectory(screenshotDir);
+
+            // Default filename: {Description}_{3840x2160}_{yyyyMMdd_HHmmss}.png
+            string safeDesc = string.Concat(mlog.Desc.Split(Path.GetInvalidFileNameChars()));
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string defaultName = $"{safeDesc}_3840x2160_{timestamp}.png";
+
+            using var dlg = new SaveFileDialog
             {
-                Bitmap bitmap = new Bitmap(splitContainer1.Width, splitContainer1.Height);
+                Filter           = "PNG Files (*.png)|*.png",
+                FilterIndex      = 1,
+                InitialDirectory = screenshotDir,
+                FileName         = defaultName
+            };
+            if (dlg.ShowDialog() != DialogResult.OK) return;
 
-                using (Graphics graphics = Graphics.FromImage(bitmap)) {
-                    graphics.Clear(Color.White);
-                    splitContainer1.DrawToBitmap(bitmap, new Rectangle(0, 0, splitContainer1.Width, splitContainer1.Height));
-                }
-
-                bitmap.Save(saveFileDialog1.FileName, ImageFormat.Png);
-            }         
+            try
+            {
+                using var stream = File.Create(dlg.FileName);
+                var exporter = new OxyPlot.SkiaSharp.PngExporter
+                {
+                    Width  = 3840,
+                    Height = 2160,
+                    Dpi    = 192   // 96 DPI × 200%：content scales to match 1080p visual size
+                };
+                exporter.Export(plot1.Model, stream);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Save failed:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }

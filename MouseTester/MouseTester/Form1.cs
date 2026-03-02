@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -18,6 +18,8 @@ namespace MouseTester
 
     public partial class Form1 : Form
     {
+        private const double CmPerInch = 2.54;
+
         private MouseLog mlog = new MouseLog();
         enum state { idle, measure_wait, measure, collect_wait, collect, log };
         private state test_state = state.idle;
@@ -28,14 +30,6 @@ namespace MouseTester
             InitializeComponent();
 
             this.Text = $"MouseTester v{Program.version}";
-
-            try {
-                // Process.GetCurrentProcess().ProcessorAffinity = new IntPtr(2); // Use only the second core 
-                // Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime; // Set highest process priority
-                // Thread.CurrentThread.Priority = ThreadPriority.Highest; // Set highest thread priority
-            } catch (Exception ex) {
-                Debug.WriteLine(ex.ToString());
-            }
 
             this.RegisterRawInputMouse(Handle);
             this.textBoxDesc.Text = this.mlog.Desc.ToString();
@@ -50,14 +44,10 @@ namespace MouseTester
             this.KeyDown += new KeyEventHandler(Form1_KeyDown);
 
             QueryPerformanceFrequency(out pFreq);
-            // Debug.WriteLine("PerformanceCounterFrequency: " + pFreq.ToString() + " Hz\n");
         }
 
         private void Form1_KeyDown(object sender, KeyEventArgs e)
         {
-            // TODO: Replace with Global Hotkey
-            // https://social.msdn.microsoft.com/Forums/vstudio/en-US/c061954b-19bf-463b-a57d-b09c98a3fe7d/assign-global-hotkey-to-a-system-tray-application-in-c?forum=csharpgeneral
-
             if (e.KeyCode == Keys.F1)
             {
                 buttonLog.PerformClick();
@@ -96,14 +86,12 @@ namespace MouseTester
 
         private void logMouseEvent(MouseEvent mevent)
         {
-            // Debug.WriteLine(mevent.pcounter + ", " + mevent.lastx + ", " + mevent.lasty + ", " + mevent.buttonflags);
             if (this.test_state == state.idle)
             {
-
             }
             else if (this.test_state == state.measure_wait)
             {
-                if (mevent.buttonflags == 0x0001)
+                if (mevent.buttonflags == RI_MOUSE_LEFT_BUTTON_DOWN)
                 {
                     this.mlog.Add(mevent);
                     this.toolStripStatusLabel1.Text = "Measuring";
@@ -113,7 +101,7 @@ namespace MouseTester
             else if (this.test_state == state.measure)
             {
                 this.mlog.Add(mevent);
-                if (mevent.buttonflags == 0x0002)
+                if (mevent.buttonflags == RI_MOUSE_LEFT_BUTTON_UP)
                 {
                     double x = 0.0;
                     double y = 0.0;
@@ -123,7 +111,7 @@ namespace MouseTester
                         y += (double)e.lasty;
                     }
                     tsCalc();
-                    this.mlog.Cpi = Math.Round(Math.Sqrt((x * x) + (y * y)) / (10 / 2.54));
+                    this.mlog.Cpi = Math.Round(Math.Sqrt((x * x) + (y * y)) / (10 / CmPerInch));
                     this.textBoxCPI.Text = this.mlog.Cpi.ToString();
                     this.textBox1.Text = "Press the Collect or Log Start button\r\n";
                     this.toolStripStatusLabel1.Text = "";
@@ -132,7 +120,7 @@ namespace MouseTester
             }
             else if (this.test_state == state.collect_wait)
             {
-                if (mevent.buttonflags == 0x0001)
+                if (mevent.buttonflags == RI_MOUSE_LEFT_BUTTON_DOWN)
                 {
                     this.mlog.Add(mevent);
                     this.toolStripStatusLabel1.Text = "Collecting";
@@ -142,16 +130,10 @@ namespace MouseTester
             else if (this.test_state == state.collect)
             {
                 this.mlog.Add(mevent);
-                if (mevent.buttonflags == 0x0002)
+                if (mevent.buttonflags == RI_MOUSE_LEFT_BUTTON_UP)
                 {
                     tsCalc();
-                    this.textBox1.Text = "Press the plot button to view data\r\n" +
-                                         "        or\r\n" +
-                                         "Press the save button to save log file\r\n" +
-                                         "Events: " + this.mlog.Events.Count.ToString() + "\r\n" +
-                                         "Sum X: " + this.mlog.deltaX().ToString() + " counts    " + Math.Abs(this.mlog.deltaX() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm\r\n" +
-                                         "Sum Y: " + this.mlog.deltaY().ToString() + " counts    " + Math.Abs(this.mlog.deltaY() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm\r\n" +
-                                         "Path: " + this.mlog.path().ToString("0") + " counts    " + (this.mlog.path() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm";
+                    this.textBox1.Text = BuildSummaryText();
                     this.toolStripStatusLabel1.Text = "";
                     this.test_state = state.idle;
                 }
@@ -162,9 +144,21 @@ namespace MouseTester
             }
         }
 
+        private string BuildSummaryText()
+        {
+            return "Press the plot button to view data\r\n" +
+                   "        or\r\n" +
+                   "Press the save button to save log file\r\n" +
+                   "Events: " + this.mlog.Events.Count.ToString() + "\r\n" +
+                   "Sum X: " + this.mlog.deltaX().ToString() + " counts    " + Math.Abs(this.mlog.deltaX() / this.mlog.Cpi * CmPerInch).ToString("0.0") + " cm\r\n" +
+                   "Sum Y: " + this.mlog.deltaY().ToString() + " counts    " + Math.Abs(this.mlog.deltaY() / this.mlog.Cpi * CmPerInch).ToString("0.0") + " cm\r\n" +
+                   "Path: " + this.mlog.path().ToString("0") + " counts    " + (this.mlog.path() / this.mlog.Cpi * CmPerInch).ToString("0.0") + " cm";
+        }
+
         private void buttonMeasure_Click(object sender, EventArgs e)
         {
-            if (this.test_state == state.idle) {
+            if (this.test_state == state.idle)
+            {
                 this.textBox1.Text = "1. Press and hold the left mouse button\r\n" +
                                      "2. Move the mouse 10 cm in a straight line\r\n" +
                                      "3. Release the left mouse button\r\n";
@@ -173,7 +167,7 @@ namespace MouseTester
                 this.test_state = state.measure_wait;
             }
         }
-        
+
         private void buttonCollect_Click(object sender, EventArgs e)
         {
             if (this.test_state == state.idle)
@@ -200,13 +194,7 @@ namespace MouseTester
             else if (this.test_state == state.log)
             {
                 tsCalc();
-                this.textBox1.Text = "Press the plot button to view data\r\n" +
-                                     "        or\r\n" +
-                                     "Press the save button to save log file\r\n" +
-                                     "Events: " + this.mlog.Events.Count.ToString() + "\r\n" +
-                                     "Sum X: " + this.mlog.deltaX().ToString() + " counts    " + Math.Abs(this.mlog.deltaX() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm\r\n" +
-                                     "Sum Y: " + this.mlog.deltaY().ToString() + " counts    " + Math.Abs(this.mlog.deltaY() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm\r\n" +
-                                     "Path: " + this.mlog.path().ToString("0") + " counts    " + (this.mlog.path() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm";
+                this.textBox1.Text = BuildSummaryText();
                 this.toolStripStatusLabel1.Text = "";
                 this.test_state = state.idle;
                 buttonLog.Text = "Start (F1)";
@@ -229,14 +217,21 @@ namespace MouseTester
             openFileDialog1.Filter = "CSV Files (*.csv)|*.csv|All Files(*.*)|*.*";
             openFileDialog1.FilterIndex = 1;
             openFileDialog1.Multiselect = false;
-            if (openFileDialog1.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            if (openFileDialog1.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                return;
+
+            try
             {
                 this.mlog.Load(openFileDialog1.FileName);
             }
-            this.textBox1.Text = "Events: " + this.mlog.Events.Count.ToString() + "\r\n" +
-                                 "Sum X: " + this.mlog.deltaX().ToString() + " counts    " + Math.Abs(this.mlog.deltaX() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm\r\n" +
-                                 "Sum Y: " + this.mlog.deltaY().ToString() + " counts    " + Math.Abs(this.mlog.deltaY() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm\r\n" +
-                                 "Path: " + this.mlog.path().ToString("0") + " counts    " + (this.mlog.path() / this.mlog.Cpi * 2.54).ToString("0.0") + " cm";
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load file:\n{ex.Message}", "Load Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            this.textBox1.Text = BuildSummaryText();
             this.textBoxDesc.Text = this.mlog.Desc.ToString();
             this.textBoxCPI.Text = this.mlog.Cpi.ToString();
             if (this.mlog.Events.Count > 0)
@@ -251,10 +246,18 @@ namespace MouseTester
             SaveFileDialog saveFileDialog1 = new SaveFileDialog();
             saveFileDialog1.Filter = "CSV Files (*.csv)|*.csv|All Files(*.*)|*.*";
             saveFileDialog1.FilterIndex = 1;
-            if (saveFileDialog1.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            if (saveFileDialog1.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                return;
+
+            try
             {
                 this.mlog.Desc = textBoxDesc.Text;
                 this.mlog.Save(saveFileDialog1.FileName);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to save file:\n{ex.Message}", "Save Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -264,7 +267,7 @@ namespace MouseTester
             {
                 this.mlog.Cpi = double.Parse(this.textBoxCPI.Text);
             }
-            catch //(Exception ex)
+            catch
             {
                 MessageBox.Show("Invalid CPI, resetting to previous value");
                 this.textBoxCPI.Text = this.mlog.Cpi.ToString();
