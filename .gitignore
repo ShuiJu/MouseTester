@@ -113,6 +113,7 @@ UpgradeLog*.XML
 /*.dll
 /*.pdb
 /*.runtimeconfig.json
+/*.deps.json
 
 # PNG screenshot exports
 /screenshot/
