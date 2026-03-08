@@ -117,4 +117,7 @@ UpgradeLog*.XML
 
 # PNG screenshot exports
 /screenshot/
+
+# HTML stability reports
+/reports/
 /.claude

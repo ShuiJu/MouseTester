@@ -47,7 +47,8 @@ namespace MouseTester
             this.tableLayoutPanel2 = new System.Windows.Forms.TableLayoutPanel();
             this.checkBoxLines = new System.Windows.Forms.CheckBox();
             this.checkBoxStem = new System.Windows.Forms.CheckBox();
-            this.buttonSavePNG = new System.Windows.Forms.Button();
+            this.buttonSavePNG      = new System.Windows.Forms.Button();
+            this.buttonStability    = new System.Windows.Forms.Button();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
@@ -111,6 +112,7 @@ namespace MouseTester
             this.tableLayoutPanel1.Controls.Add(this.groupBoxYRange,    4, 0);
             this.tableLayoutPanel1.Controls.Add(this.tableLayoutPanel2, 6, 0);
             this.tableLayoutPanel1.Controls.Add(this.buttonSavePNG,     7, 0);
+            this.tableLayoutPanel1.Controls.Add(this.buttonStability,   5, 0);
             this.tableLayoutPanel1.Location = new System.Drawing.Point(3, 3);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
             this.tableLayoutPanel1.RowCount = 1;
@@ -447,6 +449,18 @@ namespace MouseTester
             this.checkBoxStem.Text = "Stem";
             this.checkBoxStem.UseVisualStyleBackColor = true;
             //
+            // buttonStability
+            //
+            this.buttonStability.Anchor = System.Windows.Forms.AnchorStyles.None;
+            this.buttonStability.Location = new System.Drawing.Point(1097, 27);
+            this.buttonStability.Margin = new System.Windows.Forms.Padding(3, 3, 3, 3);
+            this.buttonStability.Name = "buttonStability";
+            this.buttonStability.Size = new System.Drawing.Size(94, 23);
+            this.buttonStability.TabIndex = 10;
+            this.buttonStability.Text = "Stability Report";
+            this.buttonStability.UseVisualStyleBackColor = true;
+            this.buttonStability.Click += new System.EventHandler(this.buttonStability_Click);
+            //
             // buttonSavePNG
             //
             this.buttonSavePNG.Anchor = System.Windows.Forms.AnchorStyles.Right;
@@ -503,6 +517,7 @@ namespace MouseTester
         private System.Windows.Forms.GroupBox groupBoxYRange;
         private System.Windows.Forms.ComboBox comboBoxYRange;
         private System.Windows.Forms.Button buttonSavePNG;
+        private System.Windows.Forms.Button buttonStability;
         private System.Windows.Forms.CheckBox checkBoxStem;
         private System.Windows.Forms.CheckBox checkBoxLines;
         private System.Windows.Forms.GroupBox statisticsGroupBox;

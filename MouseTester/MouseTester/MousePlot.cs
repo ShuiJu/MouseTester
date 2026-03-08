@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
@@ -596,6 +597,48 @@ namespace MouseTester
         }
 
         // ── PNG export (fixed 3840×2160, white background) ─────────────────────
+        // ── Stability Report ───────────────────────────────────────────────────
+        private void buttonStability_Click(object sender, EventArgs e)
+        {
+            if (mlog.Events.Count < 3)
+            {
+                MessageBox.Show("Not enough data to generate a stability report.",
+                    "Stability Report", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Use the same time window the chart is currently showing
+            FindStartEndIndices();
+
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                AnalysisResult result = MouseAnalysis.Analyze(mlog.Events, last_start, last_end);
+                string html = HtmlReportGenerator.Generate(result, mlog.Events, mlog.Desc, mlog.Cpi);
+
+                string reportsDir = Path.Combine(AppContext.BaseDirectory, "reports");
+                Directory.CreateDirectory(reportsDir);
+
+                string safeDesc  = string.Concat(mlog.Desc.Split(Path.GetInvalidFileNameChars()));
+                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                string htmlPath  = Path.Combine(reportsDir, $"{safeDesc}_{result.DetectedHz}Hz_{timestamp}.html");
+
+                File.WriteAllText(htmlPath, html, System.Text.Encoding.UTF8);
+
+                // Open in default browser
+                Process.Start(new ProcessStartInfo(htmlPath) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to generate report:\n{ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+
         private void buttonSavePNG_Click(object sender, EventArgs e)
         {
             // Default to a "screenshot" folder next to the executable

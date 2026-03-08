@@ -7,7 +7,7 @@ namespace MouseTester
 {
     static class Program
     {
-        public static string version = "1.8.0-NET8.0";
+        public static string version = "1.9.0 beta NET8.0";
 
         /// <summary>
         /// The main entry point for the application.
