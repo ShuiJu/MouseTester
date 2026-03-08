@@ -121,3 +121,4 @@ UpgradeLog*.XML
 # HTML stability reports
 /reports/
 /.claude
+/dist

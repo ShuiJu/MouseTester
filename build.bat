@@ -1,0 +1,1 @@
+dotnet publish MouseTester/MouseTester/MouseTester.csproj -r win-x64 -c Release -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false --self-contained false -o dist 2>&1 && ls -la dist/
